@@ -1,0 +1,188 @@
+<script>
+  window.onload = initialize;
+
+  function gebi(id) {
+    return document.getElementById(id);
+  }
+
+  function initialize() {
+    window.init_time = Date.now();
+    window.max_speed_mps = -1;
+    window.last_lat = null;
+    window.last_long = null;
+    window.sampleRate = 0.5; // this is measured in samples per second; the time in between measurements is given by 1 / sampleRate
+    window.speed_unit = "m/s"
+    window.show_second = false;
+
+    // start main loop
+    navigator.geolocation.getCurrentPosition(GPS_promise_fulfill);
+
+    // start clock loop
+    setInterval(function() {
+      // 1. set the clock
+      var d = new Date();
+      if (window.show_second) gebi("clock_value").innerHTML = d.toLocaleTimeString('it-IT');
+      else gebi("clock_value").innerHTML = d.toLocaleTimeString('it-IT').slice(0, -3)
+
+      // 2. set the trip total time counter
+      s_elapsed = Math.round((Date.now() - window.init_time) / 1000);
+      h = Math.floor(s_elapsed / 3600);
+      m = Math.floor( (s_elapsed - (h * 60) ) / 60);
+      s = s_elapsed - (m * 60);
+      gebi("trip_time_value").innerHTML = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+      
+    }, 1000)
+  }
+
+  function calculateAverageSpeed(lat1, long1, lat2, long2, sampleRate) {
+    const deg2rad = Math.PI / 180;
+    const radiusEarthMeters = 6371000;
+
+    // Use arc length and the fact that GPS coordinates represent degrees to figure out displacement components
+    const dLat_m = (lat1 - lat2) * deg2rad * radiusEarthMeters;
+    const dLong_m = (long1 - long2) * deg2rad * radiusEarthMeters;
+
+    // Arc length is radius * radians, and since radius was in meters, our final answer will be in meters. We will get the magnitude of the two components. 
+    const d_m = Math.sqrt(dLat_m * dLat_m + dLong_m * dLong_m);
+
+    // Calculate speed by dividing distance / time between each GPS sample
+    const speed_mps = d_m / (1 / sampleRate);
+
+    return speed_mps;
+  }
+  /*
+  chatgpt cleaned that function up; the original logic is here.
+  deg_2_rad_coeff = Math.PI / 180;
+  dLat_m = (window.last_lat - current_lat) * deg_2_rad_coeff * 6371000;
+  dLong_m = (window.last_long - current_long) * deg_2_rad_coeff * 6371000; // this operates off the principle of arc length = radians * radius; and 6371000 is an approximation of the radius of the earth in meters, which will give us a meters answer
+  d_m = Math.sqrt( (dLat_m * dLat_m) + (dLong_m * dLong_m) );
+  speed_mps = d_m / (1 / sampleRate);
+  */
+
+
+  function GPS_promise_fulfill(glp) {
+    console.log("Received a new position datapoint...");
+    // we are going to get a lat and a long
+    current_lat = glp.coords.latitude;
+    current_long = glp.coords.longitude;
+    gebi("speedometer_coords").innerHTML = `${current_lat}, ${current_long}`;
+    if (window.last_lat && window.last_long) {
+      console.log("Calculating speed...")
+      // if the browser natively supports getting the m/s from the glpos object, use that instead of doing our own calculation
+      if (glp.coords.speed) {
+        speed_mps = glp.coords.speed;
+      } else {
+        speed_mps = calculateAverageSpeed(window.last_lat, window.last_long, current_lat, current_long, window.sampleRate);
+      }
+      // now, we update the max speed variable and display max speed
+      if (speed_mps > window.max_speed_mps) {
+        window.max_speed_mps = speed_mps;
+      }
+      if (window.speed_unit == "kmph") displayspeed = (window.max_speed_mps / 1000) * 60 * 60;
+      else if (window.speed_unit == "mph") displayspeed = window.max_speed_mps * 2.2369362921;
+      else if (window.speed_unit == "m/s") displayspeed = window.max_speed_mps;
+      gebi("max_speed_value").innerHTML = displayspeed.toFixed(3);
+      gebi("max_speed_unit").innerHTML = window.speed_unit;
+      // log speed to console
+      console.log(speed_mps + " m/s");
+      // display speed on screen
+      if (window.speed_unit == "kmph") displayspeed = (speed_mps / 1000) * 60 * 60;
+      else if (window.speed_unit == "mph") displayspeed = speed_mps * 2.2369362921;
+      else if (window.speed_unit == "m/s") displayspeed = speed_mps;
+      gebi("speedometer_value").innerHTML = displayspeed.toFixed(1);
+      gebi("speedometer_unit").innerHTML = window.speed_unit;
+    }
+
+    window.last_lat = current_lat;
+    window.last_long = current_long;
+    console.log("Set last noted position to " + window.last_lat + ", " + window.last_long);
+
+
+    // we queue up another measurement if the last one was successful
+    console.log("Time between samples: " + (1000 * (1 / window.sampleRate)) + "ms");
+
+    // blink the coordinates to indicate a sample
+    gebi("speedometer_coords").style.color = "gray";
+    setTimeout(function () {gebi("speedometer_coords").style.color = "lightblue";}, 100);
+    setTimeout(function () {console.log("-----------"); console.log("Requesting location..."); navigator.geolocation.getCurrentPosition(GPS_promise_fulfill)}, 1000 * (1 / window.sampleRate));
+
+  }
+
+</script>
+
+
+<link href="https://fonts.cdnfonts.com/css/seven-segment" rel="stylesheet">
+
+<body style='background-color: black'>
+
+
+
+
+  <div>
+    <h1 style='font-size: 40px;display: block; font-family: monospace;text-align:center'>
+      <a href='#' style='color:#666;'
+        onclick='window.speed_unit = "mph"'>mi/h</a>
+      <a href='#' style='color:#666;'
+        onclick='window.speed_unit = "kmph"'>km/h</a>
+      <a href='#' style='color:#666;'
+        onclick='window.speed_unit = "m/s"'>m/s</a>
+      <br>
+      <a href='#' style='color:#666;'
+        onclick='window.show_second = !window.show_second'>toggle clock sec.</a>
+      <br>
+      <a href='#' style='color:#666;'
+        onclick='gebi("speedometer_coords").style.display = "none"'>hide coords</a>
+      <a href='#' style='color:#666;'
+        onclick='gebi("speedometer_coords").style.display = "inline"'>show coords</a>
+    </h1>
+  </div>
+    <hr>
+    <br>
+    <br>
+
+    <div style='text-align:center; color:lightblue; font-family: "Seven Segment";' id='speedometer'>
+      <h1 style='font-size: 40px;display: inline'>SPEED</h1>
+      <br>
+      <h1 style='font-size: 230px;display: inline' id='speedometer_value'>XX.X</h1>
+      &nbsp;&nbsp;
+      <h1 style='font-size: 90px;display: inline' id='speedometer_unit'>m/s</h1>
+      <br>
+      <br>
+      <h1 style='font-size: 40px;display: inline'>COORDS (hidden by default)</h1>
+      <br>
+      <h1 style='font-size: 50px;display: none' id='speedometer_coords'>0, 0</h1>
+    </div>
+
+    <br>
+    <hr>
+    <br>
+
+    <div style='text-align:center; font-family: "Seven Segment"; color:pink' id='clock'>
+      <h1 style='font-size: 40px;display: inline'>CLOCK</h1>
+      <br>
+      <h1 style='font-size: 230px;display: inline' id='clock_value'>99:99</h1>
+    </div>
+
+    <br>
+    <hr>
+    <br>
+
+    <div style='text-align:center; font-family: "Seven Segment"; color:lightgreen' id='tripdata'>
+    <h1 'font-size: 40px;display: inline'>TRIP DATA</h1>   
+    <h1 style='font-size: 40px;display: inline'>MAX SPEED</h1>
+    &nbsp;&nbsp;
+    <h1 style='font-size: 90px;display: inline' id='max_speed_value'>XX.X</h1>
+    &nbsp;&nbsp;
+    <h1 style='font-size: 90px;display: inline' id='max_speed_unit'>m/s</h1>
+    <br>
+    <br>
+    <h1 style='font-size: 40px;display: inline'>ELAPSED TIME</h1>
+    &nbsp;&nbsp;
+    <h1 style='font-size: 90px;display: inline' id='trip_time_value'>00:00:00</h1>
+    </div>
+
+    
+
+
+  </div>
+</body>
